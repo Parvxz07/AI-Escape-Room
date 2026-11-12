@@ -1,0 +1,61 @@
+{
+  "title": "The Locked Library",
+  "intro": "You wake up on a cold wooden floor. Candlelight flickers across tall shelves. You are locked inside an old library. You can see a desk, a bookshelf, a painting, a locked drawer and a door with a four-digit keypad.",
+  "objects": {
+    "desk": {
+      "aliases": ["desk", "table", "writing desk", "note", "torn note"],
+      "examine": "A heavy oak desk. A torn note lies on it: 'The year this library was founded opens what is hidden.' A locked drawer is built into it.",
+      "sets": ["note_read"]
+    },
+    "bookshelf": {
+      "aliases": ["bookshelf", "shelf", "shelves", "books", "book", "bookcase"],
+      "examine": "Four books are arranged differently from the rest. Handwritten on their spines, left to right, are the numbers 5, 2, 9, 3.",
+      "sets": ["books_examined"]
+    },
+    "painting": {
+      "aliases": ["painting", "portrait", "picture", "frame", "plate"],
+      "examine": "A stern portrait of the library's founder. The frame plate reads 'Founded 1847'. Something brass is taped to the back of the canvas: a small key.",
+      "sets": ["painting_examined", "key_visible"]
+    },
+    "drawer": {
+      "aliases": ["drawer", "locked drawer"],
+      "examine_locked": "The desk drawer has a small keyhole and a four-digit dial. It is locked.",
+      "examine_open": "The drawer is open. It holds a folded paper.",
+      "sets": []
+    },
+    "door": {
+      "aliases": ["door", "exit", "keypad", "heavy door"],
+      "examine": "A heavy oak door with a four-digit keypad. It does not budge.",
+      "sets": []
+    }
+  },
+  "items": {
+    "brass key": {
+      "aliases": ["brass key", "key", "small key"],
+      "description": "A small brass key with a worn bow.",
+      "taken_from": "painting",
+      "requires_flag": "key_visible",
+      "take_message": "You peel the brass key from the back of the painting and pocket it."
+    },
+    "folded paper": {
+      "aliases": ["folded paper", "paper", "note from drawer", "folded note"],
+      "description": "A folded paper that reads: 'The way out is written on the books, in order.'",
+      "taken_from": "drawer",
+      "requires_flag": "drawer_open",
+      "take_message": "You take the folded paper. It reads: 'The way out is written on the books, in order.'"
+    }
+  },
+  "solutions": {
+    "drawer_code": "1847",
+    "door_code": "5293"
+  },
+  "hints": [
+    {"if_not": "painting_examined", "text": "Have you looked closely at everything in the room, especially the walls?"},
+    {"if_not": "key_taken", "text": "Something on the painting might be useful. Try taking it."},
+    {"if_not": "drawer_key_used", "text": "The drawer has a keyhole. What do you carry that could fit?"},
+    {"if_not": "drawer_open", "text": "The desk note speaks of a year. Where in the room is a year written?"},
+    {"if_not": "books_examined", "text": "Some books on the shelf are arranged oddly."},
+    {"if_not": "escaped", "text": "The paper says the way out is written on the books, in order."}
+  ],
+  "secrets_never_to_reveal": ["1847", "5293"]
+}
