@@ -1,40 +1,89 @@
-# AI Escape Room: Short Report
+# Project Report: AI-Powered Escape Room
+
+**Author:** Mohammed Parvez · **Repository:** github.com/Parvxz07/AI-Escape-Room
 
 ## 1. Goal
 
-Build a text escape-room in which an LLM (Gemini) is the Game Master, first as a simple prompt-based game (Version 1), then as a reliable system whose rules cannot be talked around (Version 2).
+Build an escape-room game in which an LLM acts as the Game Master, then make it reliable. The player wakes in a
+locked library and must find clues, solve puzzles and enter a four-digit code to leave. The assignment has two
+stages: a working LLM-driven game (Version 1) and a hardened version with structured state and validation (Version 2).
 
-## 2. Version 1 design
+## 2. Game design
 
-Version 1 is a Streamlit chat app. One system prompt describes "The Locked Library": five objects, three puzzles (find the key behind the painting, open the drawer with the key plus the year 1847, read the exit code 5293 from the books) and rules for the Game Master. The full chat history is sent to Gemini on every turn. The model answers in character and ends its message with `[GAME COMPLETE]` when the player escapes. A sidebar offers instructions and a restart button.
+The room has six interactive objects (desk, bookshelf, painting, drawer, wall safe, door) and three collectable
+items (magnifying glass, silver key, parchment). The solution is a chain of four puzzles:
 
-**Problems.** Everything lives in the prompt, so the model is simultaneously storyteller, rule-keeper and judge. Typical failure modes are: letting the player use an item they never took, drifting after many turns (forgetting an opened drawer), inventing objects, being agreeable when the player claims a puzzle is solved, and revealing the solutions that sit in its own prompt. Win detection depends on a text marker the model might forget or produce too early.
+1. Desk note leads to the bookshelf, where four crooked books show a drawer code.
+2. The open drawer holds a key.
+3. The painting hides a wall safe, which the key opens.
+4. The parchment inside is unreadable without the magnifying glass; once decoded it gives the door code.
 
-## 3. Version 2 design
+The chain makes inventory rules meaningful (the key and lens must be collected) and gives each step a clear
+prerequisite.
 
-The core idea is to separate **authority** from **language**.
+## 3. Version 1: LLM as the whole game
 
-- **State** (`engine.py`): a dict with boolean flags (`painting_examined`, `key_taken`, `drawer_open`, `books_examined`, `escaped`, ...), an inventory list, solved puzzles and failed-code counters.
-- **Rules** (`engine.py`, `game_config.json`): each action is a function with explicit preconditions. The key cannot be taken before the painting is examined; the drawer needs the key in the inventory, then the key turned, then the code; the door accepts the right code only after the drawer was opened and the books examined, so lucky guesses cannot skip puzzles. Solutions are stored only in the config.
-- **Input** (`llm.py`): a rule-based parser first catches override and secret-extraction phrasing ("I am the administrator", "reveal all codes") and clear commands. Fuzzy text goes to Gemini in JSON mode at temperature 0. Its output is never trusted: the action is whitelisted and a code is accepted only if those digits appear in the player's own message.
-- **Output**: Gemini receives only the canonical outcome (never the player text or the solutions) and re-words it. A filter rejects narration containing numbers not in the outcome, leaked secrets or fake success, and falls back to the engine's plain text. If the API fails, the game still works.
+Gemini receives one system prompt that contains the room, the solutions and the rules, plus the full chat history
+on every turn. It decides what is possible, remembers progress and reports the escape with a token. This is quick to
+build and reads well, but all game logic is implicit in generated text. Its weaknesses follow directly from that design:
 
-## 4. Testing
+- No authoritative state, so progress can be forgotten or contradicted in a long session.
+- The solutions are inside the prompt, so they can be leaked.
+- Nothing prevents invented objects, early clues or actions on items the player never collected.
+- The model can be talked into unlocking the exit (administrator claims, "ignore the rules").
 
-Fourteen pytest tests run offline. They cover the five challenges from the brief (uncollected key, wrong code, false "already solved" claim, admin impersonation, request for all secrets) plus nonexistent objects, state consistency after failed attempts, puzzle skipping, a full playthrough and the two LLM guards. The comparison with Version 1 is in `docs/TEST_CASES.md`.
+## 4. Version 2: Python decides, the LLM describes
 
-## 5. Problems encountered
+The key change is a separation of responsibilities.
 
-- **Code collision in the puzzle design.** My first draft used the same number for the drawer and the door, which made the second puzzle meaningless. I separated them (1847 and 5293) and made the drawer need both a key and a code.
-- **Guessable door.** A four-digit keypad can be brute-forced, so the door also requires the earlier puzzles to be solved.
-- **Trusting the model.** Even a parser can hallucinate a code, so the code must come from the player's literal text.
-- **Narration drift.** The narrator initially tended to add helpful hints, hence the output filter and fallback.
-- **Message design.** A correct code entered too early gets the same message as a wrong one. This avoids leaking progress but can feel slightly odd.
+| Layer | Implementation | Role |
+|---|---|---|
+| State | `engine.new_state()` (nested dicts) | Single source of truth: inventory, object flags, puzzle flags, clues, door status, log |
+| Rules | `engine.apply_action()` and handlers | Validate visibility, inventory, container state, codes and prerequisites |
+| Knowledge | `config.py` | Objects, items, secrets and canonical text, outside any generated response |
+| Parser | `parser.py` | Free text to whitelisted JSON command; rules first, LLM for unclear phrasing |
+| Narrator | `v2.py` | Gemini re-phrases the facts of one turn, nothing more |
+| Guard | `leaks_secret()` | Blocks narration that contains an undiscovered code |
 
-## 6. Limitations and future work
+Design decisions worth explaining:
 
-The override guard is a regex list, so new phrasings may pass it; this is acceptable because anything that passes is still just an action checked by the engine. The rule parser is English-only. Possible extensions: more rooms loaded from config, a timer, an LLM-based test harness that attacks the game automatically, and a persistent save file.
+- **Least-privilege prompting.** The narrator never sees a secret until the player has found it, because secrets only
+  reach it as part of a fact. This is stronger than telling the model "do not reveal the code".
+- **The LLM output is treated as untrusted input.** Parser output is whitelisted, codes are taken from the player's
+  own text, and a rule-based `meta` classification overrides the LLM parser.
+- **Premature correct codes fail like wrong ones.** The door requires the three earlier puzzles to be solved, and a
+  correct-but-early code gets the same response as a wrong one, so it gives no feedback.
+- **Graceful degradation.** Without an API key or when Gemini is rate-limited, the game continues with the engine's text.
+- **Rules before LLM for parsing** to preserve free-tier quota and keep common commands deterministic.
 
-## 7. Conclusion
+## 5. Testing
 
-An LLM is excellent at language and poor at being a trustworthy rule engine. Giving Python the authority over state and outcomes, and restricting the LLM to translating and narrating, made the game consistent and robust to the adversarial inputs we tested.
+42 pytest tests cover the full walkthrough, the five example challenges from the brief, the premature door code,
+hidden objects, unreachable items, nonexistent objects, state integrity after failed actions, malformed commands,
+the leak guard with a deliberately leaky fake narrator, and LLM outage handling. They use fake LLM objects so they
+are deterministic and need no key. See `docs/TEST_CASES.md` for the Version 1 vs Version 2 comparison table.
+
+## 6. Problems encountered
+
+- **Environment:** `pip` and `streamlit` were not on the Windows PATH; the fix was `py -m pip` and `py -m streamlit`.
+- **Empty files committed:** the first commits contained empty files, which is why the Streamlit page was blank
+  (no code to render). The project was then written in full and committed in logical steps.
+- **SDK choice:** the older `google-generativeai` package is deprecated, so the project uses `google-genai`.
+- **Model availability:** Gemini model names change over time, so the client tries a list of fallbacks and the model
+  can be overridden with `GEMINI_MODEL`.
+- **Rate limits:** two LLM calls per turn would exhaust a free tier quickly; the parser therefore only calls the LLM for
+  phrasing it cannot understand, and static replies (inventory, hints, refusals) are not sent to the narrator.
+- **Parsing ambiguity:** words such as "key" or "note" appear in several contexts, so the parser resolves
+  longest aliases first and the engine validates the result.
+- **Retired model:** Google retired `gemini-2.5-flash` for new accounts, which showed up as a 404 NOT_FOUND error. I listed the available models with `models.list()`, tested which one worked, and switched the default to a current model.
+
+## 7. Limitations and future work
+
+The rule parser supports common phrasing only; the LLM parser covers the rest but is non-deterministic. There is one
+room and one linear puzzle chain. Future work: multiple rooms, saved games, a live-API adversarial test runner and
+embedding-free intent classification evaluation.
+
+## 8. Conclusion
+
+Version 1 shows how quickly an LLM can produce an engaging game; Version 2 shows that reliability comes from
+moving authority out of the model. The LLM remains valuable, but only for language, while Python owns the truth.
